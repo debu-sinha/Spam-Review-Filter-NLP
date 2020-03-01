@@ -5,7 +5,6 @@ This is a classification problem.
 
 # Dataset
 Deceptive Opinion Spam Corpus v1.4
-==================================
 
 Overview
 --------
@@ -92,7 +91,6 @@ Association for Computational Linguistics: Human Language Technologies.
 1. JohnSnowLabs:spark-nlp:2.0.8
 
 
-Spam_Review_Filter_NLP_using_Spark
 # Installation
 ```
 $ git clone https://github.com/debu-sinha/Spam_Review_Filter_NLP_using_Spark.git
