@@ -1,7 +1,7 @@
 # Spam Review Filter NLP using Spark
 The goal of this project is to use reliable machine learning model that can reliably predict if a review is fake or not based on reviews data input provided by high precision.
 
-This is a classification problem. 
+This is a NLP classification problem. 
 
 # Dataset
 Deceptive Opinion Spam Corpus v1.4
