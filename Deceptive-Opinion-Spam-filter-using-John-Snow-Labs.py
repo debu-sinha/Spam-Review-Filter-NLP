@@ -11,14 +11,9 @@
 # MAGIC - John Snow Labs
 # MAGIC 
 # MAGIC created_at: 2020-02-12
+# MAGIC updated-on: 2021-08-28
 # MAGIC tldr: Create a Spam review classifier using John Snow Labs on Databricks.
 # MAGIC ---
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC # Notebook Links
-# MAGIC - AWS demo.cloud: [https://demo.cloud.databricks.com/#notebook/3844968](https://demo.cloud.databricks.com/#notebook/3844968)
 
 # COMMAND ----------
 
@@ -326,4 +321,5 @@ with mlflow.start_run(experiment_id=experiment_id, run_name=d1) as run:
     mlflow.log_metric("accuracy", evaluator.setMetricName("accuracy").evaluate(predDF))
 
 # COMMAND ----------
+
 
