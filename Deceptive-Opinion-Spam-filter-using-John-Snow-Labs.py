@@ -1,19 +1,16 @@
 # Databricks notebook source
-# MAGIC %md ---
-# MAGIC title: Deceptive Opinion Spam filter using John Snow Labs
-# MAGIC - Debu Sinha
-# MAGIC tags:
-# MAGIC - python
-# MAGIC - spark-streaming
-# MAGIC - NLP
-# MAGIC - mlflow
-# MAGIC - delta
-# MAGIC - John Snow Labs
-# MAGIC 
-# MAGIC created_at: 2020-02-12
-# MAGIC updated-on: 2021-08-28
-# MAGIC tldr: Create a Spam review classifier using John Snow Labs on Databricks.
-# MAGIC ---
+# MAGIC %md 
+# MAGIC # Detecting Spam reviews at scale using Apache Spark and John Snow Labs NLP on Databricks.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Architecture Diagram
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ![Architecture Diagram](https://raw.githubusercontent.com/debu-sinha/Spam-Review-Filter-NLP/dev/architecture.JPG)
 
 # COMMAND ----------
 
@@ -109,13 +106,20 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Step 0) Data Prep
+# MAGIC # Step 1) Install desired libraries 
+
+# COMMAND ----------
+
+# MAGIC %pip install spark-nlp==3.2.2
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC 
-# MAGIC all data is in the common location : /mnt/databricks-datasets-private/ML/NLP_JohnSnowLabs_FakeReviews
+# MAGIC ## Step 2) Process Raw Data
+
+# COMMAND ----------
+
+# MAGIC %s
 
 # COMMAND ----------
 
