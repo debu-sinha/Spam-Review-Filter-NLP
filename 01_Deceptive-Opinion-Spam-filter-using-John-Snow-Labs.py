@@ -128,11 +128,16 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install spark-nlp==3.2.2
+# MAGIC %md
+# MAGIC #####Note: Run cmd 10 only once.
 
 # COMMAND ----------
 
 # MAGIC %run ./00_setup
+
+# COMMAND ----------
+
+# MAGIC %pip install spark-nlp==3.2.2 mlflow
 
 # COMMAND ----------
 
@@ -187,7 +192,7 @@
 
 # COMMAND ----------
 
-data =  spark.sql("select sno, review, reviewpolarity from spam_reviews.spam_reviews_delta_bronze")
+data =  spark.sql("select sno, review, label from spam_reviews.spam_reviews_delta_bronze order by sno")
 display(data)
 
 # COMMAND ----------
@@ -207,37 +212,48 @@ data.count()
 
 # COMMAND ----------
 
-from pyspark.ml import Pipeline
+from  pyspark.ml.feature import Normalizer as VectorNormalizer
+from pyspark.ml.classification import LogisticRegression
+from pyspark.ml import *
 from pyspark.ml.feature import *
 from pyspark.sql.functions import *
 from sparknlp.annotator import *
 from sparknlp.common import *
 from sparknlp.base import *
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.classification import LogisticRegression
 import sparknlp
 
 # COMMAND ----------
 
+#Divide the dataset into train and test
+train_df, test_df = data.randomSplit([.8, .2], seed=42)
+train_x = train_df.sort(train_df.sno).select("sno", "review")
+train_y = train_df.sort(train_df.sno).select("sno", "label")
+test_x = test_df.sort(test_df.sno).select("sno", "review")
+test_y = test_df.sort(test_df.sno).select("sno", "label")
+
+# COMMAND ----------
+
 # MAGIC %md
-# MAGIC ### 2.2 Convert the categorical columns to numeric excluding the `review` column and One-hot encoding non target column.
+# MAGIC ### 2.2 One-hot encode feature categorical columns.
 # MAGIC 
-# MAGIC We will convert each string column into multiple binary columns.
+# MAGIC We will convert each catgorical independent feature into multiple binary columns.
 # MAGIC For each input string column, the number of output columns is equal to the number of unique values in the input column.
 # MAGIC This is used for string columns with relatively few unique values.
 
 # COMMAND ----------
 
-string_col_list = [i[0] for i in data.dtypes if ((i[1] == 'string') and (i[0] != "review"))]
+#dealing with the training independent features
+string_col_list = [i[0] for i in train_x.dtypes if ((i[1] == 'string') and (i[0] != "review"))]
 #convert string to integer
-string_indexers = [StringIndexer(inputCol = categorical_col, outputCol = categorical_col + "_index") for categorical_col in string_col_list]
+indexers  = [StringIndexer(inputCol = categorical_col, outputCol = categorical_col + "_index") for categorical_col in string_col_list]
 #one hot encoding all the categorical columns except the label column
 encoders = [OneHotEncoder(inputCols=[categorical_col+"_index"], outputCols=[categorical_col+"_vec"]) for categorical_col in string_col_list if categorical_col != "label"]
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### 2.3 Process the review column
+# MAGIC ### 2.3 Process the `review` column
 
 # COMMAND ----------
 
@@ -247,10 +263,10 @@ encoders = [OneHotEncoder(inputCols=[categorical_col+"_index"], outputCols=[cate
 document_assembler = DocumentAssembler().setInputCol("review").setOutputCol("document")
 
 # Tokenization is the process of splitting a text into smaller units(tokens). 
-tokenizer = Tokenizer().setInputCols(["document"]).setOutputCol("token") 
+tokenizer = Tokenizer().setInputCols(["document"]).setOutputCol("tokens") 
 
 # Remove Stop words. a, an, the, for, where etc 
-stop_words_cleaner = StopWordsCleaner.pretrained().setInputCols("token").setOutputCol("cleanTokens").setCaseSensitive(False)
+stop_words_cleaner = StopWordsCleaner.pretrained().setInputCols("tokens").setOutputCol("cleanTokens").setCaseSensitive(False)
 
 # remove punctuations (keep alphanumeric chars)
 # if we don't set CleanupPatterns, it will only keep alphabet letters ([^A-Za-z])
@@ -264,111 +280,113 @@ lemmatizer = LemmatizerModel.pretrained().setInputCols(["normalized"]).setOutput
 #It is useful to extract the results from Spark NLP Pipelines. The Finisher outputs annotation(s) values into array.
 finisher = Finisher().setInputCols(["lemmatized"]).setOutputAsArray(True)
 
+#Count vectorizer will create a document term matrix, A matrix that lists out out of all the unique words in our corpus and then calculates 
+#how many times a word appears in a document. 
+# Extracts a vocabulary from document collections and generates a CountVectorizerModel. https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.ml.feature.CountVectorizer.html
+cv = CountVectorizer(inputCol='finished_lemmatized', outputCol="features", vocabSize=10000)
+
+#Compute the Inverse Document Frequency (IDF) given a collection of documents. https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.ml.feature.IDF.html?highlight=idf#pyspark.ml.feature.IDF.minDocFreq
+idf = IDF(inputCol="features", outputCol="sparse_vecs_notnorm")
+
+#different from Normalizer from Spark NLP. This Normalizer normalizes a vector to have unit norm using the given p-norm.https://spark.apache.org/docs/latest/api/python/reference/api/pyspark.ml.feature.Normalizer.html?highlight=normalizer#pyspark.ml.feature.Normalizer.p. p=2 is l2 norm.
+vector_normalizer =  VectorNormalizer(inputCol="sparse_vecs_notnorm", outputCol="sparse_vecs", p=2)
+
+
 #tying it all into feature engineering pipeline
-feature_engineering_pipeline = Pipeline(stages=[string_indexers, encoders, document_assembler, token_assembler, normalizer, lemmatizer_model, finisher])
-feature_engineering_pipeline
+feature_engineering_pipeline = Pipeline(stages=indexers + encoders+ [document_assembler, tokenizer, stop_words_cleaner, normalizer, lemmatizer, finisher, cv, idf, vector_normalizer])
 
 # COMMAND ----------
 
-feature_engineering_tranformer = feature_engineering_pipeline.fit(data)
-feature_engineered_df = feature_engineering_tranformer.transform(data)
+# we will use this in future when creating our final model pipeline.
+feature_engineering_tranformer = feature_engineering_pipeline.fit(train_x)
+
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 2.4 Process the `label`column
+
+# COMMAND ----------
+
+label_indexer_estimator = StringIndexer(inputCol = "label", outputCol = "label" + "_index")
+label_indexer_transformer = label_indexer_estimator.fit(train_y)
+binarized_train_y = label_indexer_transformer.transform(train_y)
+binarized_test_y = label_indexer_transformer.transform(test_y)
+
+# COMMAND ----------
+
+combined_feature_engineered_training_df =  train_x.join(binarized_train_y, train_x.sno == binarized_train_y.sno,"inner" ).select("review", "label_index")
+combined_feature_engineered_test_df =  test_x.join(binarized_test_y, test_x.sno == binarized_test_y.sno,"inner" ).select("review", "label_index")
 
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC # 3) Trainings our machine learning model
+# MAGIC ## 3) Train classification model
+# MAGIC - Create an MLFlow experiment to track the runs and set as current
+# MAGIC - Change the model parameters and re-run the training cell to log a different trial to the MLflow experiment
+# MAGIC - To view the full list of tunable hyperparameters, check the output of the cell below
 
 # COMMAND ----------
 
-from pyspark.ml.feature import *
+# MAGIC %md 
+# MAGIC ### 3.1) Create MLFlow experiment
 
 # COMMAND ----------
 
-cv = CountVectorizer(inputCol='finished_lemmatized', outputCol="features", vocabSize=8000)
-idf = IDF(inputCol="features", outputCol="sparse_vecs_notnorm")
-normalize = Normalizer(inputCol="sparse_vecs_notnorm", outputCol="sparse_vecs", p=2)
-lr = LogisticRegression(featuresCol="sparse_vecs", labelCol='label_index', maxIter=30)
+import mlflow
 
-pipelineML = Pipeline(stages=[cv, idf, normalize, lr])
-finalDf = pipelineML.fit(nlpDF).transform(nlpDF)
-display(finalDf)
+user = dbutils.notebook.entry_point.getDbutils().notebook().getContext().tags().apply('user') # user name associated with your account. its usually an email
+username = user.split("@")[0]
+mlflow_experiment_name = '{}_spam_review_classifier'.format(username)
+experiment_location = '/Users/{}/{}'.format(user, mlflow_experiment_name) #experiment will be listed in this directory.
+try:
+  mlflow.create_experiment(name=experiment_location)
+except:
+  #experiment already exist
+  # to delete the existing experiment uncomment the next lines. Read more:   https://mlflow.org/docs/latest/python_api/mlflow.html#mlflow.get_experiment_by_name
+  mlflow.delete_experiment(mlflow.get_experiment_by_name(name=experiment_location).experiment_id)
+  mlflow.create_experiment(name=experiment_location)
+  mlflow.set_experiment(experiment_name=experiment_location)
+
+dbutils.fs.rm("dbfs:/tmp/"+mlflow_experiment_name, recurse=True)  
+  
+
+# COMMAND ----------
+
+from pyspark.ml.classification import LogisticRegression
+
+help(LogisticRegression)
 
 # COMMAND ----------
 
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 
-trainDF, testDF = nlpDF.randomSplit([.8, .2], seed=42)
+lr = LogisticRegression(featuresCol="sparse_vecs", labelCol='label_index', maxIter=30)
+#final estimator 
+model = Pipeline(stages=feature_engineering_pipeline.getStages() + [lr])
+
+# COMMAND ----------
 
 evaluator = MulticlassClassificationEvaluator(predictionCol='prediction', labelCol='label_index', metricName='f1')
+mlflow.spark.autolog()
 
-paramGrid = (ParamGridBuilder()
-            .addGrid(lr.regParam, [.01, .10])
-            .build())
-
-crossVal = CrossValidator(estimator=pipelineML, estimatorParamMaps=paramGrid, evaluator=evaluator, numFolds=3, seed=27)
-
-crossValModel = crossVal.fit(trainDF)
-
-print(crossValModel.avgMetrics)
-
-# COMMAND ----------
-
-predDF = crossValModel.transform(testDF)
-display(predDF)
-
-# COMMAND ----------
-
-# MAGIC %md 
-# MAGIC #Step 4) Collecting Metrics on test dataset
-
-# COMMAND ----------
-
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-
-evaluator = MulticlassClassificationEvaluator(metricName="f1", labelCol="label_index")
-metricsDF = spark.createDataFrame([("f1", evaluator.evaluate(predDF)), 
-                                   ("accuracy", evaluator.setMetricName("accuracy").evaluate(predDF))], ["Metric", "Value"])
-display(metricsDF)
-
-# COMMAND ----------
-
-from datetime import date
-today = date.today()
-# dd/mm/YY
-d1 = today.strftime("%d-%m-%Y")
-
-# COMMAND ----------
-
-import mlflow  
-import mlflow.tracking
-import mlflow.spark
-#experiment_id = mlflow.create_experiment("/Users/debu.sinha@databricks.com/webinar-modeldrift/spam-review-classifier-model-registry")
-experiment_id = mlflow.create_experiment("/Shared/experiments/spam-review-classifier")
-
-
-
-#create a new run to log my best ML model
-with mlflow.start_run(experiment_id=experiment_id, run_name="bestrun_"+d1) as run:
-    # Log mlflow attributes for mlflow UI\
+with mlflow.start_run(run_name="logistic_regression") as mlflow_run:    
+    model_transformer = model.fit(combined_feature_engineered_training_df)
+    train_prediction = model_transformer.transform(combined_feature_engineered_training_df)
+    test_prediction = model_transformer.transform(combined_feature_engineered_test_df)
     
-    mlflow.log_metric("f1", evaluator.evaluate(predDF))
-    mlflow.log_metric("accuracy", evaluator.setMetricName("accuracy").evaluate(predDF))
+    mlflow.log_metric("training_f1", evaluator.evaluate(train_prediction))
+    mlflow.log_metric("test_f1", evaluator.evaluate(test_prediction))
     
-    mlflow.spark.log_model(etlPipelineModel, "etlPipelineModel")
-    mlflow.spark.log_model(nlpPipelineModel, "nlpPipelineModel")
-    mlflow.spark.log_model(crossValModel.bestModel, "bestScoringModel")
-    
-    print("Inside MLflow Run with id %s" % run.info.run_uuid)
-
+    mlflow.spark.log_model(spark_model=model_transformer, artifact_path="dbfs:/tmp/"+mlflow_experiment_name)
+     
 
 # COMMAND ----------
 
-#experiment_id = mlflow.create_experiment("/Users/debu.sinha@databricks.com/webinar-modeldrift/spam-review-classifier-runs")
-experiment_id = mlflow.create_experiment("/Shared/experiments/spam-review-classifier-NLP")
-#create a new run to log my best ML model
-with mlflow.start_run(experiment_id=experiment_id, run_name=d1) as run:
-    # Log mlflow attributes for mlflow UI\
-    
-    mlflow.log_metric("f1", evaluator.evaluate(predDF))
-    mlflow.log_metric("accuracy", evaluator.setMetricName("accuracy").evaluate(predDF))
+# MAGIC %md
+# MAGIC <b>Pro-tip:</b> Databricks also ships with [Hyperopt](https://docs.databricks.com/applications/machine-learning/automl-hyperparam-tuning/index.html) to parallelize model search using hyper parameter tuning.
+
+# COMMAND ----------
+
+

@@ -42,7 +42,7 @@ dbutils.fs.rm("dbfs:/tmp/spam_review/data", recurse=True)
 # COMMAND ----------
 
 # MAGIC %sql
-# MAGIC DROP DATABASE spam_reviews CASCADE;
+# MAGIC DROP DATABASE IF EXISTS spam_reviews CASCADE;
 # MAGIC 
 # MAGIC CREATE DATABASE IF NOT EXISTS spam_reviews;
 # MAGIC USE spam_reviews;
