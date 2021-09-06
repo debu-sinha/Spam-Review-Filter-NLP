@@ -1,7 +1,5 @@
 # Spam Review Filter NLP using Spark
-The goal of this project is to use reliable machine learning model that can reliably predict if a review is fake or not based on reviews data input provided by high precision.
-
-This is a NLP classification problem. 
+The goal of this product is to showcase how to set a NLP capable Data pipeline at scale using Databricks, Delta, MLFlow and John Snow Labs to detect fake reviews.
 
 # Dataset
 Deceptive Opinion Spam Corpus v1.4
@@ -79,32 +77,29 @@ Technologies.
 In Proceedings of the 2013 Conference of the North American Chapter of the
 Association for Computational Linguistics: Human Language Technologies.
 
+# Architecture Diagram
+![Architecture Diagram](architecture.JPG)
+
 # Software and package requirements
-1. Databricks
+1. Databricks, Databricks Runtime Version - 9.0 ML
 2. Git
 
 # Python Libraries Used
-1. mlflow 1.5+
-2. spark-nlp 2.0.8+
+1. mlflow 1.2+
+2. spark-nlp 3.2.2
 
 # Java Libraries Used
-1. JohnSnowLabs:spark-nlp:2.0.8
+1. JohnSnowLabs:spark-nlp_2.12:3.2.2
 
-
-# Installation
-```
-$ git clone https://github.com/debu-sinha/Spam_Review_Filter_NLP_using_Spark.git
-$ cd Spam_Review_Filter_NLP_using_Spark
-```
-
+# Setup
 1. Create a demo account on the Databricks Community edition. https://databricks.com/try-databricks
 2. Import  Deceptive-Opinion-Spam-filter-using-John-Snow-Labs.py in your Databricks workspace. https://docs.databricks.com/notebooks/notebooks-manage.html#import-a-notebook
-3. Create a cluster with latest ML runtime and attach all the library dependencies. https://docs.databricks.com/clusters/create.html & https://docs.databricks.com/libraries.html#install-a-library-on-a-cluster
+3. Create a cluster with latest ML runtime and attach all Java libraries used dependencies. https://docs.databricks.com/clusters/create.html & https://docs.databricks.com/libraries.html#install-a-library-on-a-cluster
 
 # License
 MIT License
 
-Copyright (c) [2020] [Debu Sinha]
+Copyright (c) [2021] [Debu Sinha]
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
