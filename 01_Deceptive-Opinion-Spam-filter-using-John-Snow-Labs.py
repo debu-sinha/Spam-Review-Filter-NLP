@@ -5,20 +5,31 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Architecture Diagram
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ![Architecture Diagram](https://raw.githubusercontent.com/debu-sinha/Spam-Review-Filter-NLP/dev/architecture.JPG)
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC Deceptive Opinion Spam Corpus v1.4
-# MAGIC ==================================
+# MAGIC ## Required Databricks Runtime
+# MAGIC - 8.4 ML (includes Apache Spark 3.1.2, Scala 2.12)
 # MAGIC 
-# MAGIC Overview
+# MAGIC ## Required Libraries
+# MAGIC - Java Libraries
+# MAGIC    - Spark NLP -> com.johnsnowlabs.nlp:spark-nlp_2.12:3.2.2
+# MAGIC - Python Libraries
+# MAGIC    - Spark NLP -> spark-nlp==3.2.2 
+# MAGIC 
+# MAGIC For questions reach out to debu.sinha@databricks.com | debusinha2009@gmail.com
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## About This Notebook
+# MAGIC 
+# MAGIC This notebooks is intended to help you understand how to architect and implement a NLP capable Dataprocessing pipeline at scale using Databricks and John Snow Labs. We will also train a Logistic regression model and track model training using MLFlow.  
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ## Dataset
+# MAGIC Deceptive Opinion Spam Corpus v1.4
+# MAGIC 
+# MAGIC ### Overview
 # MAGIC --------
 # MAGIC 
 # MAGIC This corpus consists of truthful and deceptive hotel reviews of 20 Chicago
@@ -43,7 +54,7 @@
 # MAGIC following conventions:
 # MAGIC 
 # MAGIC * Directories prefixed with `fold` correspond to a single fold from the
-# MAGIC   cross-validation experiments reported in [1] and [2].
+# MAGIC   cross-validation experiments reported in [1] and [2].		
 # MAGIC 
 # MAGIC * Files are named according to the format `%c_%h_%i.txt`, where:
 # MAGIC 
@@ -90,23 +101,30 @@
 # MAGIC [2] M. Ott, C. Cardie, and J.T. Hancock. 2013. Negative Deceptive Opinion Spam.
 # MAGIC In Proceedings of the 2013 Conference of the North American Chapter of the
 # MAGIC Association for Computational Linguistics: Human Language Technologies.
-# MAGIC 
-# MAGIC License
-# MAGIC -------
-# MAGIC 
-# MAGIC This work is licensed under the Creative Commons
-# MAGIC Attribution-NonCommercial-ShareAlike 3.0 Unported License. To view a copy of
-# MAGIC this license, visit http://creativecommons.org/licenses/by-nc-sa/3.0/ or send a
-# MAGIC letter to Creative Commons, 444 Castro Street, Suite 900, Mountain View,
-# MAGIC California, 94041, USA.
-# MAGIC 
-# MAGIC If you use any of this data in your work, please cite the appropriate associated
-# MAGIC paper (described above).
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Step 1) Install desired libraries 
+# MAGIC ## Architecture Diagram
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ![Architecture Diagram](https://raw.githubusercontent.com/debu-sinha/Spam-Review-Filter-NLP/dev/architecture.JPG)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1) Data Engineering
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 1.1) Configure the Environment
+# MAGIC * Download dataset from the github repo and make it accessible as an Spark external table.
+# MAGIC * Install `spark-nlp==3.2.2` as notebook scoped library using `%pip`
+# MAGIC * Install  `com.johnsnowlabs.nlp:spark-nlp_2.12:3.2.2` as cluster scoped library fropm maven as described [here](https://docs.databricks.com/libraries/cluster-libraries.html#cluster-installed-library)
+# MAGIC * set up database named `spam_reviews` and external table named `spam_reviews_raw`
 
 # COMMAND ----------
 
@@ -114,120 +132,151 @@
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Step 2) Process Raw Data
-
-# COMMAND ----------
-
-# MAGIC %s
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC create database if not exists spam_reviews;
-# MAGIC use spam_reviews;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC create EXTERNAL TABLE IF NOT EXISTS spam_reviews_raw(review string) 
-# MAGIC COMMENT 'This table has raw data for the spamreview_demo' 
-# MAGIC PARTITIONED  BY(reviewpolarity string, label string, source string)  
-# MAGIC LOCATION '/mnt/databricks-datasets-private/ML/NLP_JohnSnowLabs_FakeReviews/op_spam/';
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC msck repair table spam_reviews_raw;
-
-# COMMAND ----------
-
-# MAGIC %sql
-# MAGIC create table if not exists spam_reviews.spam_reviews_delta_bronze
-# MAGIC using delta
-# MAGIC as select row_number() over(order by reviewpolarity, label, source) as sno, review, reviewpolarity, label, source from spam_reviews.spam_reviews_raw;
+# MAGIC %run ./00_setup
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Step 1) Load the data
+# MAGIC <b>Pro-Tip:</b> In production environment use Databricks [Auto Loader](https://docs.databricks.com/spark/latest/structured-streaming/auto-loader.html).
+# MAGIC 
+# MAGIC But, what is Auto Loader?
+# MAGIC 
+# MAGIC - Auto Loader incrementally and efficiently loads new data files as they arrive in S3 or Azure Blog Storage. This is enabled by providing a Structured Streaming source called cloudFiles.
+# MAGIC 
+# MAGIC - Auto Loader internally keeps tracks of what files have been processed to provide exactly-once semantics, so you do not need to manage any state information yourself.
+# MAGIC 
+# MAGIC - Auto Loader supports two modes for detecting when new files arrive:
+# MAGIC 
+# MAGIC   - Directory listing: Identifies new files by parallel listing of the input directory. Quick to get started since no permission configurations are required. Suitable for scenarios where only a few files need to be streamed in on a regular basis.
+# MAGIC 
+# MAGIC   - File Notification: Uses AWS SNS and SQS services that subscribe to file events from the input directory. Auto Loader automatically sets up the AWS SNS and SQS services. File notification mode is more performant and scalable for large input directories.
+# MAGIC 
+# MAGIC - In this notebook, we use Directory Listing as that is the default mode for detecting when new files arrive.
 
 # COMMAND ----------
 
-data = spark.sql("select sno, review, label from spam_reviews.spam_reviews_delta_bronze where not (reviewpolarity='positive' and label='fake')");
+# MAGIC %md
+# MAGIC ### 1.2) Read raw data into a Delta table and create Bronze layer table.
 
 # COMMAND ----------
 
+# MAGIC %md #### Getting started with <img src="https://docs.delta.io/latest/_static/delta-lake-logo.png" width=300/>
+# MAGIC 
+# MAGIC An open-source storage layer for data lakes that brings ACID transactions to Apache Spark™ and big data workloads.
+# MAGIC 
+# MAGIC * ***ACID Transactions***: Ensures data integrity and read consistency with complex, concurrent data pipelines.
+# MAGIC * ***Unified Batch and Streaming Source and Sink***: A table in Delta Lake is both a batch table, as well as a streaming source and sink. Streaming data ingest, batch historic backfill, and interactive queries all just work out of the box. 
+# MAGIC * ***Schema Enforcement and Evolution***: Ensures data cleanliness by blocking writes with unexpected.
+# MAGIC * ***Time Travel***: Query previous versions of the table by time or version number.
+# MAGIC * ***Deletes and upserts***: Supports deleting and upserting into tables with programmatic APIs.
+# MAGIC * ***Open Format***: Stored as Parquet format in blob storage.
+# MAGIC * ***Audit History***: History of all the operations that happened in the table.
+# MAGIC * ***Scalable Metadata management***: Able to handle millions of files are scaling the metadata operations with Spark.
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC CREATE TABLE IF NOT EXISTS spam_reviews.spam_reviews_delta_bronze
+# MAGIC USING DELTA
+# MAGIC AS SELECT row_number() OVER(ORDER BY reviewpolarity, label, source) AS sno, review, reviewpolarity, label, source FROM spam_reviews.spam_reviews_raw;
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### 1.3) Read data from `spam_reviews.spam_reviews_delta_bronze` as a Spark Dataframe.
+
+# COMMAND ----------
+
+data =  spark.sql("select sno, review, reviewpolarity from spam_reviews.spam_reviews_delta_bronze")
 display(data)
 
 # COMMAND ----------
 
+#total number of records
 data.count()
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Step 2) Data preparation
-# MAGIC * Label Encoding
-# MAGIC * Normalization of the review sentences.
-# MAGIC * Bagging the words.
+# MAGIC ## 2) Feature Engineering
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ### 2.1) Import libraries
 
 # COMMAND ----------
 
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import *
-from pyspark.ml.classification import NaiveBayes
-from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.feature import OneHotEncoderEstimator, RegexTokenizer, CountVectorizer, IDF 
-from pyspark.ml.classification import LogisticRegression
-
 from pyspark.sql.functions import *
 from sparknlp.annotator import *
 from sparknlp.common import *
 from sparknlp.base import *
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml.classification import LogisticRegression
 import sparknlp
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Convert the categorical columns to numeric
+# MAGIC ### 2.2 Convert the categorical columns to numeric excluding the `review` column and One-hot encoding non target column.
+# MAGIC 
+# MAGIC We will convert each string column into multiple binary columns.
+# MAGIC For each input string column, the number of output columns is equal to the number of unique values in the input column.
+# MAGIC This is used for string columns with relatively few unique values.
 
 # COMMAND ----------
 
 string_col_list = [i[0] for i in data.dtypes if ((i[1] == 'string') and (i[0] != "review"))]
+#convert string to integer
 string_indexers = [StringIndexer(inputCol = categorical_col, outputCol = categorical_col + "_index") for categorical_col in string_col_list]
-encoders = [OneHotEncoderEstimator(inputCols=[categorical_col+"_index"], outputCols=[categorical_col+"_vec"]) for categorical_col in string_col_list if categorical_col != "label"]
-
-# COMMAND ----------
-
-stages = string_indexers + encoders
-indexer = Pipeline(stages=stages)
-etlPipelineModel = indexer.fit(data)
-indexed = etlPipelineModel.transform(data).drop("label")
-display(indexed)
+#one hot encoding all the categorical columns except the label column
+encoders = [OneHotEncoder(inputCols=[categorical_col+"_index"], outputCols=[categorical_col+"_vec"]) for categorical_col in string_col_list if categorical_col != "label"]
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Convert the input reviews into an array of lemmatize tokens.
+# MAGIC ### 2.3 Process the review column
 
 # COMMAND ----------
 
+# To get through the process in Spark NLP, we need to get raw data transformed into Document type first.
+# DocumentAssembler() is a special transformer that does this for us 
+# it creates the first annotation of type Document which may be used by annotators down the road.
 document_assembler = DocumentAssembler().setInputCol("review").setOutputCol("document")
-token_assembler = Tokenizer().setInputCols(["document"]).setOutputCol("token").setTargetPattern("\w+\'?\w+") # Tokenize
-normalizer = Normalizer().setInputCols(["token"]).setOutputCol("normalized") # 
-lemmatizer_model = LemmatizerModel.pretrained().setInputCols(["normalized"]).setOutputCol("lemmatized") # Lemmatize
-finisher = Finisher().setInputCols(["lemmatized"]).setOutputAsArray(True) # Convert to Array
 
-nlpPipeline = Pipeline(stages=[document_assembler, token_assembler, normalizer, lemmatizer_model, finisher])
-nlpPipelineModel = nlpPipeline.fit(indexed)
-nlpDF = nlpPipelineModel.transform(indexed)
-display(nlpDF)
+# Tokenization is the process of splitting a text into smaller units(tokens). 
+tokenizer = Tokenizer().setInputCols(["document"]).setOutputCol("token") 
+
+# Remove Stop words. a, an, the, for, where etc 
+stop_words_cleaner = StopWordsCleaner.pretrained().setInputCols("token").setOutputCol("cleanTokens").setCaseSensitive(False)
+
+# remove punctuations (keep alphanumeric chars)
+# if we don't set CleanupPatterns, it will only keep alphabet letters ([^A-Za-z])
+normalizer = Normalizer().setInputCols(["cleanTokens"]).setOutputCol("normalized").setLowercase(True).setCleanupPatterns(["""[^\w\d\s]"""]) 
+
+#reduce words to morpheme or base form. This is useful to reduce data dimensionality and data cleaning.
+#Lemmatizer reduces a token to its lemma. Example : running, ran, run, rans will be reduced to run.
+lemmatizer = LemmatizerModel.pretrained().setInputCols(["normalized"]).setOutputCol("lemmatized") 
+
+# Converts annotation results into a format that easier to use.
+#It is useful to extract the results from Spark NLP Pipelines. The Finisher outputs annotation(s) values into array.
+finisher = Finisher().setInputCols(["lemmatized"]).setOutputAsArray(True)
+
+#tying it all into feature engineering pipeline
+feature_engineering_pipeline = Pipeline(stages=[string_indexers, encoders, document_assembler, token_assembler, normalizer, lemmatizer_model, finisher])
+feature_engineering_pipeline
+
+# COMMAND ----------
+
+feature_engineering_tranformer = feature_engineering_pipeline.fit(data)
+feature_engineered_df = feature_engineering_tranformer.transform(data)
 
 # COMMAND ----------
 
 # MAGIC %md 
-# MAGIC # Step 3) Feature engineering and trainings our machine learning model
+# MAGIC # 3) Trainings our machine learning model
 
 # COMMAND ----------
 
@@ -323,7 +372,3 @@ with mlflow.start_run(experiment_id=experiment_id, run_name=d1) as run:
     
     mlflow.log_metric("f1", evaluator.evaluate(predDF))
     mlflow.log_metric("accuracy", evaluator.setMetricName("accuracy").evaluate(predDF))
-
-# COMMAND ----------
-
-
