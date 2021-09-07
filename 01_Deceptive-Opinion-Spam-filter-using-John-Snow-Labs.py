@@ -386,7 +386,3 @@ with mlflow.start_run(run_name="logistic_regression") as mlflow_run:
 
 # MAGIC %md
 # MAGIC <b>Pro-tip:</b> Databricks also ships with [Hyperopt](https://docs.databricks.com/applications/machine-learning/automl-hyperparam-tuning/index.html) to parallelize model search using hyper parameter tuning.
-
-# COMMAND ----------
-
-
