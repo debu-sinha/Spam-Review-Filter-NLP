@@ -85,7 +85,7 @@ Association for Computational Linguistics: Human Language Technologies.
 2. Git
 
 # Python Libraries Used
-1. mlflow 1.2+
+1. mlflow 1.9+
 2. spark-nlp 3.2.2
 
 # Java Libraries Used
