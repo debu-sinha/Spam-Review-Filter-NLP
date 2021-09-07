@@ -81,7 +81,7 @@ Association for Computational Linguistics: Human Language Technologies.
 ![Architecture Diagram](architecture.JPG)
 
 # Software and package requirements
-1. Databricks, Databricks Runtime Version - 9.0 ML
+1. Databricks, Databricks Runtime Version - 8.4 ML
 2. Git
 
 # Python Libraries Used
